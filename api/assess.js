@@ -48,5 +48,5 @@ export default async function handler(req, res) {
     res.status(502).json({ error: err.message });
   }
 }
-I'm providing clear c
-}
+I'm providing clear copy-paste instructions to replace the entire file content on GitHub, using select-all to avoid the partial-paste issues from before. I'll also mention my secondary hypothesis about a potential Vercel timeout and what to check in the Vercel logs if the "Load failed" error persists after applying this fix.
+Don
