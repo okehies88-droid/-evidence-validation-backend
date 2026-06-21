@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Evidence validation — prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F5F1; --surface:#FFFFFF; --ink:#1E2422; --ink-soft:#5B6360; --ink-faint:#8B928E;
+    --border:#DEDCD3; --border-strong:#C7C4B8;
+    --teal:#0F6E56; --teal-bg:#E1F5EE; --teal-border:#9FE1CB;
+    --coral:#993C1D; --coral-bg:#FAECE7; --coral-border:#F0997B;
+    --green:#3B6D11; --green-bg:#EAF3DE; --green-border:#97C459;
+    --amber:#854F0B; --amber-bg:#FAEEDA; --amber-border:#EF9F27;
+    --red:#A32D2D; --red-bg:#FCEBEB; --red-border:#F09595;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#15201C; --surface:#1C2722; --ink:#EDEAE2; --ink-soft:#B4B2A9; --ink-faint:#7D8580;
+      --border:#33403A; --border-strong:#445049;
+      --teal:#5DCAA5; --teal-bg:#0F2A23; --teal-border:#0F6E56;
+      --coral:#F0997B; --coral-bg:#2E1A10; --coral-border:#993C1D;
+      --green:#97C459; --green-bg:#1C2A0F; --green-border:#3B6D11;
+      --amber:#EF9F27; --amber-bg:#2A1F0B; --amber-border:#854F0B;
+      --red:#F09595; --red-bg:#2E1414; --red-border:#A32D2D;
+    }
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;line-height:1.5;}
+  .page{max-width:980px;margin:0 auto;padding:40px 24px 64px;}
+  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:8px;}
+  h1.display{font-family:'Source Serif 4',serif;font-weight:600;font-size:34px;margin:0 0 6px;}
+  .tagline{color:var(--ink-soft);font-size:15px;margin:0 0 8px;}
+  .storage-note{color:var(--ink-faint);font-size:12px;margin:0 0 24px;}
+  .storage-note.unavailable{color:var(--coral);}
+  .tabs{display:flex;gap:0;margin-bottom:24px;border-bottom:1px solid var(--border);}
+  .tab-btn{background:none;border:none;padding:10px 4px;margin-right:24px;font-family:inherit;font-size:14px;color:var(--ink-faint);cursor:pointer;border-bottom:2px solid transparent;}
+  .tab-btn.active{color:var(--ink);border-bottom-color:var(--teal);font-weight:500;}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+  .layout{display:grid;grid-template-columns:240px 1fr;gap:24px;}
+  @media (max-width:680px){.layout{grid-template-columns:1fr;}}
+  .control-list-label,.audit-trail-label,.field-label{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:10px;display:block;}
+  .control-row{display:block;width:100%;text-align:left;background:var(--surface);border:1px solid var(--border);border-left:3px solid transparent;border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;font-family:inherit;color:var(--ink);transition:border-color .15s, background .15s;}
+  .control-row:hover{border-color:var(--border-strong);}
+  .control-row.active{border-left-color:var(--teal);background:var(--teal-bg);}
+  .control-row .cid{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--teal);font-weight:500;}
+  .control-row .cname{font-size:13px;color:var(--ink-soft);margin-top:2px;}
+  .workspace{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;}
+  .control-detail{padding-bottom:18px;border-bottom:1px solid var(--border);margin-bottom:18px;}
+  .control-detail .cid-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+  .control-detail .cid{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--teal);background:var(--teal-bg);border:1px solid var(--teal-border);border-radius:5px;padding:2px 8px;}
+  .control-detail .fw{font-size:12px;color:var(--ink-faint);}
+  .control-detail .owner{font-size:12px;color:var(--ink-faint);margin-left:auto;}
+  .control-detail h2{font-size:16px;font-weight:500;margin:0 0 8px;}
+  .control-detail .criteria{font-size:13px;color:var(--ink-soft);margin:0;}
+  textarea{width:100%;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink);background:var(--bg);resize:vertical;margin-bottom:14px;}
+  textarea:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:transparent;}
+  .run-btn{background:var(--teal);color:var(--teal-bg);border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:500;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:8px;}
+  .run-btn:hover{opacity:.9;}
+  .run-btn:disabled{opacity:.5;cursor:default;}
+  .spinner{width:13px;height:13px;border:2px solid var(--teal-bg);border-top-color:var(--teal-bg);border-radius:50%;border-right-color:transparent;animation:spin .7s linear infinite;display:none;}
+  @media (prefers-reduced-motion: no-preference){.spinner.show{display:inline-block;}}
+  @media (prefers-reduced-motion: reduce){.spinner.show{display:inline-block;opacity:.6;}}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .error-msg{color:var(--red);font-size:13px;margin-top:10px;}
+  .result-panel{margin-top:22px;padding-top:22px;border-top:1px solid var(--border);}
+  .result-panel.hidden{display:none;}
+  .status-row{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
+  .status-badge{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;padding:4px 10px;border-radius:6px;border:1px solid;}
+  .status-badge.satisfied{color:var(--green);background:var(--green-bg);border-color:var(--green-border);}
+  .status-badge.partial{color:var(--amber);background:var(--amber-bg);border-color:var(--amber-border);}
+  .status-badge.missing{color:var(--red);background:var(--red-bg);border-color:var(--red-border);}
+  .risk-badge{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;padding:4px 10px;border-radius:6px;border:1px solid;}
+  .risk-badge.critical{color:var(--red);background:var(--red-bg);border-color:var(--red-border);}
+  .risk-badge.high{color:var(--coral);background:var(--coral-bg);border-color:var(--coral-border);}
+  .risk-badge.medium{color:var(--amber);background:var(--amber-bg);border-color:var(--amber-border);}
+  .risk-badge.low{color:var(--green);background:var(--green-bg);border-color:var(--green-border);}
+  .risk-statement{font-size:13px;color:var(--ink-soft);margin:6px 0 0;border-left:2px solid var(--border-strong);padding-left:10px;}
+  .remediation-list{margin:0;padding:0;list-style:none;}
+  .remediation-list li{font-size:14px;padding:3px 0 3px 18px;position:relative;color:var(--ink);}
+  .remediation-list li:before{content:"→";position:absolute;left:0;color:var(--teal);}
+  .compensating-control{background:var(--bg);border:1px dashed var(--border-strong);border-radius:8px;padding:12px 14px;margin-top:10px;}
+  .compensating-control .label{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);font-weight:500;margin-bottom:4px;}
+  .compensating-control p{font-size:14px;margin:0;color:var(--ink);font-style:italic;}
+  .confidence{font-size:12px;color:var(--ink-faint);}
+  .result-block{margin-bottom:16px;}
+  .result-block h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);font-weight:500;margin:0 0 8px;}
+  .result-block p{font-size:14px;margin:0;color:var(--ink);}
+  .cite-list,.gap-list{margin:0;padding:0;list-style:none;}
+  .cite-list li{font-size:13px;font-family:'IBM Plex Mono',monospace;background:var(--bg);border-left:2px solid var(--teal-border);padding:6px 10px;margin-bottom:6px;color:var(--ink-soft);}
+  .gap-list li{font-size:14px;padding:3px 0 3px 16px;position:relative;}
+  .gap-list li:before{content:"–";position:absolute;left:0;color:var(--red);}
+  .reviewer-focus{background:var(--coral-bg);border:1px solid var(--coral-border);border-radius:8px;padding:12px 14px;}
+  .reviewer-focus .flag{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--coral);font-weight:500;margin-bottom:4px;}
+  .reviewer-focus p{font-size:14px;margin:0;color:var(--ink);}
+  .audit-trail{margin-top:28px;padding-top:18px;border-top:1px solid var(--border);}
+  .audit-log-entry{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-soft);padding:6px 0;border-bottom:1px dashed var(--border);display:flex;gap:10px;flex-wrap:wrap;}
+  .audit-log-entry:last-child{border-bottom:none;}
+  .audit-log-empty{font-size:13px;color:var(--ink-faint);font-style:italic;}
+  .reviewer-bar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
+  .reviewer-bar label{font-size:13px;color:var(--ink-soft);}
+  .reviewer-bar input{border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-family:inherit;font-size:13px;background:var(--surface);color:var(--ink);min-width:180px;}
+  .queue-summary{font-size:13px;color:var(--ink-soft);margin-bottom:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+  .link-btn{background:none;border:none;color:var(--ink-faint);font-size:12px;text-decoration:underline;cursor:pointer;font-family:inherit;padding:0;}
+  .export-btn{background:var(--surface);border:1px solid var(--border-strong);color:var(--ink);border-radius:8px;padding:8px 14px;font-size:13px;font-family:inherit;cursor:pointer;}
+  .queue-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;}
+  .queue-card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .owner-tag{font-size:12px;color:var(--ink-faint);margin-left:auto;}
+  .queue-reasoning{font-size:14px;margin:0 0 10px;color:var(--ink);}
+  .decided-banner{font-size:13px;padding:8px 10px;border-radius:6px;margin-bottom:10px;}
+  .decided-banner.approved{background:var(--green-bg);color:var(--green);}
+  .decided-banner.overridden{background:var(--red-bg);color:var(--red);}
+  .queue-note-input{width:100%;border:1px solid var(--border);border-radius:6px;padding:8px;font-family:inherit;font-size:13px;margin-bottom:8px;background:var(--bg);color:var(--ink);}
+  .queue-actions-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .btn-approve{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border);border-radius:8px;padding:6px 12px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;}
+  .btn-override{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border);border-radius:8px;padding:6px 12px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;}
+  .queue-empty{font-size:14px;color:var(--ink-faint);font-style:italic;padding:20px 0;}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">Prototype</div>
+  <h1 class="display">Evidence validation</h1>
+  <p class="tagline">AI checks submitted evidence against a control requirement, flags what's missing — a human signs off before anything is final.</p>
+  <p class="storage-note" id="storage-note"></p>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-btn-validate" onclick="switchTab('validate')">Validate</button>
+    <button class="tab-btn" id="tab-btn-queue" onclick="switchTab('queue')">Review queue</button>
+  </div>
+
+  <div class="tab-panel active" id="tab-validate">
+    <div class="layout">
+      <aside>
+        <span class="control-list-label">Controls</span>
+        <div id="control-list"></div>
+      </aside>
+
+      <main class="workspace">
+        <div class="control-detail" id="control-detail"></div>
+
+        <label class="field-label" for="evidence-input">Submitted evidence</label>
+        <textarea id="evidence-input" rows="6"></textarea>
+
+        <button class="run-btn" id="run-btn" onclick="runAssessment()">
+          <span class="spinner" id="spinner"></span>
+          <span id="run-btn-label">Run AI assessment</span>
+        </button>
+        <div class="error-msg" id="error-msg"></div>
+
+        <div class="result-panel hidden" id="result-panel"></div>
+
+        <div class="audit-trail">
+          <span class="audit-trail-label">Audit trail</span>
+          <div id="audit-log"><div class="audit-log-empty">Loading…</div></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-queue">
+    <div class="reviewer-bar">
+      <label for="reviewer-name">Reviewing as</label>
+      <input type="text" id="reviewer-name" placeholder="Your name">
+    </div>
+    <div class="queue-summary" id="queue-summary">Loading review queue…</div>
+    <div id="queue-list"></div>
+    <div class="queue-actions-row" style="margin-top:8px;">
+      <button class="export-btn" onclick="exportQueueCSV()">Export queue as CSV</button>
+      <button class="link-btn" onclick="resetDemoData()">Reset demo data (clears shared data for everyone)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CONTROLS = [
+  {
+    id: "AC-01",
+    framework: "SOC 2",
+    owner: "Jane Doe (IT Sec)",
+    requirement: "Quarterly access review of production systems",
+    criteria: "Sufficient evidence: a dated review report or screenshot naming the reviewer, systems reviewed, and any access changes made as a result.",
+    sample: "Q1 2026 Access Review — Conducted by Jane Doe, IT Security, on 2026-04-02. Reviewed admin access for the AWS production account and internal HR system. Confirmed 14 active admin users, all currently employed. No access changes required. Reviewed and approved by CTO on 2026-04-03."
+  },
+  {
+    id: "SAT-01",
+    framework: "SOC 2",
+    owner: "Lisa Park (HR)",
+    requirement: "Annual security awareness training completion records",
+    criteria: "Sufficient evidence: a completion report or export showing who finished training and when — not just the training policy.",
+    sample: "Security Awareness Training Policy — All employees must complete annual phishing and data-handling training. Training content covers password hygiene, phishing recognition, and incident reporting procedures."
+  },
+  {
+    id: "ENC-01",
+    framework: "SOC 2",
+    owner: "Jane Doe (IT Sec)",
+    requirement: "Encryption policy review and sign-off",
+    criteria: "Sufficient evidence: proof the policy was reviewed within the current audit period, with a named reviewer and date.",
+    sample: "Encryption Policy v3.2 — reviewed and signed off by Jane Doe, IT Security, on 2025-11-01. Covers AES-256 at rest and TLS 1.2+ in transit requirements for all production systems."
+  },
+  {
+    id: "IR-01",
+    framework: "SOC 2",
+    owner: "Sarah Kim (Sec)",
+    requirement: "Annual incident response tabletop exercise",
+    criteria: "Sufficient evidence: a report showing a tabletop exercise actually took place — date, participants, scenario, and follow-up actions.",
+    sample: "We maintain an incident response plan documented in Confluence, covering roles, escalation paths, and communication procedures for a security incident."
+  }
+];
+
+// Points at the deployed backend (see /backend or /vercel-backend) which
+// holds the Anthropic and Vanta API keys server-side. The browser never
+// talks to api.anthropic.com or api.vanta.com directly.
+// Empty string = relative path. Since this page is hosted on the same
+// Vercel domain as the /api routes, "/api/assess" resolves correctly with
+// no cross-origin request involved at all.
+const BACKEND_URL = "";
+
+const STORAGE_AVAILABLE = (typeof window.storage !== 'undefined') && (window.storage !== null);
+const localFallback = {};
+
+async function storeGet(key, shared){
+  if (STORAGE_AVAILABLE){
+    try { return await window.storage.get(key, shared); } catch(e){ return null; }
+  }
+  return Object.prototype.hasOwnProperty.call(localFallback, key) ? { key, value: localFallback[key], shared } : null;
+}
+async function storeSet(key, value, shared){
+  if (STORAGE_AVAILABLE){
+    try { return await window.storage.set(key, value, shared); } catch(e){ return null; }
+  }
+  localFallback[key] = value;
+  return { key, value, shared };
+}
+async function storeDelete(key, shared){
+  if (STORAGE_AVAILABLE){
+    try { return await window.storage.delete(key, shared); } catch(e){ return null; }
+  }
+  delete localFallback[key];
+  return { key, deleted: true, shared };
+}
+
+let activeIdx = 0;
+let auditTrailCache = [];
+
+function switchTab(tab){
+  document.getElementById('tab-validate').classList.toggle('active', tab === 'validate');
+  document.getElementById('tab-queue').classList.toggle('active', tab === 'queue');
+  document.getElementById('tab-btn-validate').classList.toggle('active', tab === 'validate');
+  document.getElementById('tab-btn-queue').classList.toggle('active', tab === 'queue');
+  if (tab === 'queue') loadQueue();
+}
+
+function renderControlList(){
+  const list = document.getElementById('control-list');
+  list.innerHTML = '';
+  CONTROLS.forEach((c, i) => {
+    const row = document.createElement('button');
+    row.className = 'control-row' + (i === activeIdx ? ' active' : '');
+    row.innerHTML = `<div class="cid">${c.id}</div><div class="cname">${c.requirement}</div>`;
+    row.onclick = () => selectControl(i);
+    list.appendChild(row);
+  });
+}
+
+function selectControl(i){
+  activeIdx = i;
+  renderControlList();
+  const c = CONTROLS[i];
+  document.getElementById('control-detail').innerHTML = `
+    <div class="cid-row"><span class="cid">${c.id}</span><span class="fw">${c.framework}</span><span class="owner">Owner: ${escapeHtml(c.owner)}</span></div>
+    <h2>${escapeHtml(c.requirement)}</h2>
+    <p class="criteria">${escapeHtml(c.criteria)}</p>`;
+  document.getElementById('evidence-input').value = c.sample;
+  document.getElementById('result-panel').classList.add('hidden');
+  document.getElementById('error-msg').textContent = '';
+}
+
+async function runAssessment(){
+  const control = CONTROLS[activeIdx];
+  const evidenceText = document.getElementById('evidence-input').value.trim();
+  const errorEl = document.getElementById('error-msg');
+  errorEl.textContent = '';
+  if (!evidenceText){
+    errorEl.textContent = 'Paste or write some evidence text first.';
+    return;
+  }
+  setLoading(true);
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/assess`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ control, evidenceText })
+    });
+    const result = await response.json();
+    if (!response.ok){
+      throw new Error(result.error || `Backend returned ${response.status}`);
+    }
+    renderResult(result, control);
+
+    const assessmentRecord = { ...result, controlId: control.id, ranAt: new Date().toISOString(), model: "claude-sonnet-4-6", evidenceSnapshot: evidenceText };
+    await storeSet('assessment:' + control.id, JSON.stringify(assessmentRecord), true);
+    await storeDelete('review:' + control.id, true);
+    await appendAuditEntry({ ts: new Date().toLocaleString(), controlId: control.id, actor: 'AI', action: 'assessed', detail: result.status });
+  } catch (err) {
+    errorEl.textContent = "Assessment failed: " + err.message;
+  } finally {
+    setLoading(false);
+  }
+}
+
+function setLoading(isLoading){
+  document.getElementById('run-btn').disabled = isLoading;
+  document.getElementById('spinner').classList.toggle('show', isLoading);
+  document.getElementById('run-btn-label').textContent = isLoading ? 'Running assessment…' : 'Run AI assessment';
+}
+
+function statusClass(status){
+  const s = (status || '').toLowerCase();
+  if (s === 'satisfied') return 'satisfied';
+  if (s === 'partial') return 'partial';
+  return 'missing';
+}
+
+function riskClass(level){
+  const r = (level || '').toLowerCase();
+  if (r === 'critical') return 'critical';
+  if (r === 'high') return 'high';
+  if (r === 'medium') return 'medium';
+  return 'low';
+}
+
+function renderResult(result, control){
+  const panel = document.getElementById('result-panel');
+  panel.classList.remove('hidden');
+  const cls = statusClass(result.status);
+  const rCls = riskClass(result.risk_level);
+  const citations = (result.evidence_citations || []).map(c => `<li>"${escapeHtml(c)}"</li>`).join('');
+  const gaps = (result.gaps || []).map(g => `<li>${escapeHtml(g)}</li>`).join('');
+  const remediation = (result.remediation_steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+  panel.innerHTML = `
+    <div class="status-row">
+      <span class="status-badge ${cls}">${escapeHtml(result.status || 'Unknown')}</span>
+      <span class="risk-badge ${rCls}">Risk: ${escapeHtml(result.risk_level || 'Unknown')}</span>
+      <span class="confidence">Confidence: ${escapeHtml(result.confidence || '—')}</span>
+    </div>
+    ${result.risk_statement ? `<p class="risk-statement">${escapeHtml(result.risk_statement)}</p>` : ''}
+    <div class="result-block">
+      <h3>Reasoning</h3>
+      <p>${escapeHtml(result.reasoning || '')}</p>
+    </div>
+    ${citations ? `<div class="result-block"><h3>Evidence cited</h3><ul class="cite-list">${citations}</ul></div>` : ''}
+    ${gaps ? `<div class="result-block"><h3>Gaps</h3><ul class="gap-list">${gaps}</ul></div>` : ''}
+    ${remediation ? `<div class="result-block"><h3>Remediation steps</h3><ul class="remediation-list">${remediation}</ul></div>` : ''}
+    ${result.compensating_control_suggestion ? `<div class="compensating-control"><div class="label">Suggested — needs reviewer judgment</div><p>${escapeHtml(result.compensating_control_suggestion)}</p></div>` : ''}
+    <div class="result-block reviewer-focus">
+      <div class="flag">Flagged for human review</div>
+      <p>${escapeHtml(result.reviewer_focus || 'A human reviewer should confirm this assessment before sign-off.')}</p>
+    </div>
+  `;
+}
+
+async function loadAuditTrail(){
+  const rec = await storeGet('audit_trail', true);
+  auditTrailCache = rec ? JSON.parse(rec.value) : [];
+  renderAuditLog();
+}
+async function appendAuditEntry(entry){
+  auditTrailCache.unshift(entry);
+  auditTrailCache = auditTrailCache.slice(0, 50);
+  await storeSet('audit_trail', JSON.stringify(auditTrailCache), true);
+  renderAuditLog();
+}
+function renderAuditLog(){
+  const log = document.getElementById('audit-log');
+  if (!auditTrailCache.length){
+    log.innerHTML = '<div class="audit-log-empty">No activity yet this session.</div>';
+    return;
+  }
+  log.innerHTML = auditTrailCache.map(e =>
+    `<div class="audit-log-entry"><span>${escapeHtml(e.ts)}</span><span>${escapeHtml(e.controlId)}</span><span>${escapeHtml(e.actor)}</span><span>${escapeHtml(e.action)}</span><span>${escapeHtml(e.detail || '')}</span></div>`
+  ).join('');
+}
+
+function priorityWeight(status, riskLevel){
+  const statusRank = { missing: 0, partial: 1, satisfied: 2 }[(status || '').toLowerCase()] ?? 2;
+  const riskRank = { critical: 0, high: 1, medium: 2, low: 3 }[(riskLevel || '').toLowerCase()] ?? 3;
+  return statusRank * 4 + riskRank;
+}
+
+async function loadQueue(){
+  const summaryEl = document.getElementById('queue-summary');
+  const listEl = document.getElementById('queue-list');
+  summaryEl.textContent = 'Loading review queue…';
+  listEl.innerHTML = '';
+
+  const items = [];
+  for (const c of CONTROLS){
+    const aRec = await storeGet('assessment:' + c.id, true);
+    if (!aRec) continue;
+    const assessment = JSON.parse(aRec.value);
+    const rRec = await storeGet('review:' + c.id, true);
+    const review = rRec ? JSON.parse(rRec.value) : null;
+    items.push({ control: c, assessment, review });
+  }
+
+  items.sort((a, b) => {
+    const aReviewed = !!a.review, bReviewed = !!b.review;
+    if (aReviewed !== bReviewed) return aReviewed ? 1 : -1;
+    const pw = priorityWeight(a.assessment.status, a.assessment.risk_level) - priorityWeight(b.assessment.status, b.assessment.risk_level);
+    if (pw !== 0) return pw;
+    return a.control.id.localeCompare(b.control.id);
+  });
+
+  const pending = items.filter(i => !i.review).length;
+  const approved = items.filter(i => i.review && i.review.decision === 'approved').length;
+  const overridden = items.filter(i => i.review && i.review.decision === 'overridden').length;
+  summaryEl.textContent = items.length
+    ? `${pending} pending · ${approved} approved · ${overridden} overridden`
+    : 'No assessments yet — run one from the Validate tab.';
+
+  if (!items.length){
+    listEl.innerHTML = '<div class="queue-empty">Nothing in the queue yet.</div>';
+    return;
+  }
+
+  listEl.innerHTML = items.map(item => renderQueueCard(item)).join('');
+}
+
+function renderQueueCard(item){
+  const { control, assessment, review } = item;
+  const cls = statusClass(assessment.status);
+  const rCls = riskClass(assessment.risk_level);
+  const remediation = (assessment.remediation_steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+  let decidedBanner = '';
+  if (review){
+    const bannerCls = review.decision === 'approved' ? 'approved' : 'overridden';
+    const verb = review.decision === 'approved' ? 'Approved' : 'Overridden';
+    decidedBanner = `<div class="decided-banner ${bannerCls}">${verb} by ${escapeHtml(review.reviewer)} on ${escapeHtml(review.decidedAt)}${review.note ? ' — ' + escapeHtml(review.note) : ''}</div>`;
+  }
+  return `
+    <div class="queue-card">
+      <div class="queue-card-head">
+        <span class="cid" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--teal);background:var(--teal-bg);border:1px solid var(--teal-border);border-radius:5px;padding:2px 8px;">${escapeHtml(control.id)}</span>
+        <span class="status-badge ${cls}">${escapeHtml(assessment.status || 'Unknown')}</span>
+        <span class="risk-badge ${rCls}">Risk: ${escapeHtml(assessment.risk_level || 'Unknown')}</span>
+        <span class="confidence">${escapeHtml(assessment.confidence || '—')} confidence</span>
+        <span class="owner-tag">Owner: ${escapeHtml(control.owner)}</span>
+      </div>
+      <p class="queue-reasoning">${escapeHtml(assessment.reasoning || '')}</p>
+      ${assessment.risk_statement ? `<p class="risk-statement">${escapeHtml(assessment.risk_statement)}</p>` : ''}
+      ${remediation ? `<ul class="remediation-list">${remediation}</ul>` : ''}
+      ${assessment.compensating_control_suggestion ? `<div class="compensating-control"><div class="label">Suggested — needs reviewer judgment</div><p>${escapeHtml(assessment.compensating_control_suggestion)}</p></div>` : ''}
+      ${decidedBanner}
+      <input type="text" class="queue-note-input" id="note-${control.id}" placeholder="Optional note">
+      <div class="queue-actions-row">
+        <button class="btn-approve" onclick="decide('${control.id}', 'approved')">Approve</button>
+        <button class="btn-override" onclick="decide('${control.id}', 'overridden')">Override</button>
+      </div>
+    </div>
+  `;
+}
+
+async function decide(controlId, decision){
+  const reviewerName = document.getElementById('reviewer-name').value.trim();
+  if (!reviewerName){
+    alert('Enter your name in "Reviewing as" before approving or overriding.');
+    return;
+  }
+  const noteInput = document.getElementById('note-' + controlId);
+  const note = noteInput ? noteInput.value.trim() : '';
+  const record = { decision, note, reviewer: reviewerName, decidedAt: new Date().toLocaleString() };
+  await storeSet('review:' + controlId, JSON.stringify(record), true);
+  await appendAuditEntry({ ts: record.decidedAt, controlId, actor: reviewerName, action: decision, detail: note });
+  loadQueue();
+}
+
+async function resetDemoData(){
+  if (!confirm('This clears all shared assessments and review decisions for everyone using this artifact. Continue?')) return;
+  for (const c of CONTROLS){
+    await storeDelete('assessment:' + c.id, true);
+    await storeDelete('review:' + c.id, true);
+  }
+  await storeDelete('audit_trail', true);
+  auditTrailCache = [];
+  renderAuditLog();
+  loadQueue();
+}
+
+function exportQueueCSV(){
+  const rows = [['Control ID','Framework','Owner','Status','Risk Level','Risk Statement','Confidence','Reasoning','Remediation Steps','Compensating Control Suggestion','Decision','Reviewer','Note','Decided At']];
+  (async () => {
+    for (const c of CONTROLS){
+      const aRec = await storeGet('assessment:' + c.id, true);
+      if (!aRec) continue;
+      const a = JSON.parse(aRec.value);
+      const rRec = await storeGet('review:' + c.id, true);
+      const r = rRec ? JSON.parse(rRec.value) : null;
+      rows.push([c.id, c.framework, c.owner, a.status || '', a.risk_level || '', (a.risk_statement || '').replace(/\n/g,' '), a.confidence || '', (a.reasoning || '').replace(/\n/g,' '), (a.remediation_steps || []).join(' | '), a.compensating_control_suggestion || '', r ? r.decision : 'pending', r ? r.reviewer : '', r ? (r.note || '') : '', r ? r.decidedAt : '']);
+    }
+    const csv = rows.map(r => r.map(field => '"' + String(field).replace(/"/g,'""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'evidence_review_queue.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  })();
+}
+
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+document.getElementById('storage-note').textContent = STORAGE_AVAILABLE
+  ? 'Shared mode: review queue and audit trail sync for anyone who opens this artifact.'
+  : 'Local-only mode: storage isn\'t available in this context, so the queue won\'t persist or sync.';
+document.getElementById('storage-note').classList.toggle('unavailable', !STORAGE_AVAILABLE);
+
+renderControlList();
+selectControl(0);
+loadAuditTrail();
+</script>
+</body>
+</html>
