@@ -290,16 +290,24 @@ async function runAssessment(){
     return;
   }
   setLoading(true);
+  const url = `${BACKEND_URL}/api/assess`;
+  let stage = 'building request';
   try {
-    const response = await fetch(`${BACKEND_URL}/api/assess`, {
+    stage = 'fetch (sending request)';
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ control, evidenceText })
     });
+    stage = 'reading response status';
+    console.log('Fetch completed. Status:', response.status, 'URL used:', url);
+    stage = 'parsing response as JSON';
     const result = await response.json();
+    stage = 'checking response.ok';
     if (!response.ok){
       throw new Error(result.error || `Backend returned ${response.status}`);
     }
+    stage = 'rendering result';
     renderResult(result, control);
 
     const assessmentRecord = { ...result, controlId: control.id, ranAt: new Date().toISOString(), model: "claude-sonnet-4-6", evidenceSnapshot: evidenceText };
@@ -307,7 +315,8 @@ async function runAssessment(){
     await storeDelete('review:' + control.id, true);
     await appendAuditEntry({ ts: new Date().toLocaleString(), controlId: control.id, actor: 'AI', action: 'assessed', detail: result.status });
   } catch (err) {
-    errorEl.textContent = "Assessment failed: " + err.message;
+    console.error('Assessment error at stage:', stage, err);
+    errorEl.textContent = `Assessment failed at [${stage}] — ${err.name || 'Error'}: ${err.message}`;
   } finally {
     setLoading(false);
   }
@@ -326,37 +335,23 @@ function statusClass(status){
   return 'missing';
 }
 
-function riskClass(level){
-  const r = (level || '').toLowerCase();
-  if (r === 'critical') return 'critical';
-  if (r === 'high') return 'high';
-  if (r === 'medium') return 'medium';
-  return 'low';
-}
-
 function renderResult(result, control){
   const panel = document.getElementById('result-panel');
   panel.classList.remove('hidden');
   const cls = statusClass(result.status);
-  const rCls = riskClass(result.risk_level);
   const citations = (result.evidence_citations || []).map(c => `<li>"${escapeHtml(c)}"</li>`).join('');
   const gaps = (result.gaps || []).map(g => `<li>${escapeHtml(g)}</li>`).join('');
-  const remediation = (result.remediation_steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
   panel.innerHTML = `
     <div class="status-row">
       <span class="status-badge ${cls}">${escapeHtml(result.status || 'Unknown')}</span>
-      <span class="risk-badge ${rCls}">Risk: ${escapeHtml(result.risk_level || 'Unknown')}</span>
       <span class="confidence">Confidence: ${escapeHtml(result.confidence || '—')}</span>
     </div>
-    ${result.risk_statement ? `<p class="risk-statement">${escapeHtml(result.risk_statement)}</p>` : ''}
     <div class="result-block">
       <h3>Reasoning</h3>
       <p>${escapeHtml(result.reasoning || '')}</p>
     </div>
     ${citations ? `<div class="result-block"><h3>Evidence cited</h3><ul class="cite-list">${citations}</ul></div>` : ''}
     ${gaps ? `<div class="result-block"><h3>Gaps</h3><ul class="gap-list">${gaps}</ul></div>` : ''}
-    ${remediation ? `<div class="result-block"><h3>Remediation steps</h3><ul class="remediation-list">${remediation}</ul></div>` : ''}
-    ${result.compensating_control_suggestion ? `<div class="compensating-control"><div class="label">Suggested — needs reviewer judgment</div><p>${escapeHtml(result.compensating_control_suggestion)}</p></div>` : ''}
     <div class="result-block reviewer-focus">
       <div class="flag">Flagged for human review</div>
       <p>${escapeHtml(result.reviewer_focus || 'A human reviewer should confirm this assessment before sign-off.')}</p>
@@ -386,10 +381,14 @@ function renderAuditLog(){
   ).join('');
 }
 
-function priorityWeight(status, riskLevel){
-  const statusRank = { missing: 0, partial: 1, satisfied: 2 }[(status || '').toLowerCase()] ?? 2;
-  const riskRank = { critical: 0, high: 1, medium: 2, low: 3 }[(riskLevel || '').toLowerCase()] ?? 3;
-  return statusRank * 4 + riskRank;
+function priorityWeight(status, confidence){
+  const s = (status || '').toLowerCase();
+  if (s === 'missing') return 0;
+  if (s === 'partial') return 1;
+  const c = (confidence || '').toLowerCase();
+  if (c === 'low') return 2;
+  if (c === 'medium') return 3;
+  return 4;
 }
 
 async function loadQueue(){
@@ -411,7 +410,7 @@ async function loadQueue(){
   items.sort((a, b) => {
     const aReviewed = !!a.review, bReviewed = !!b.review;
     if (aReviewed !== bReviewed) return aReviewed ? 1 : -1;
-    const pw = priorityWeight(a.assessment.status, a.assessment.risk_level) - priorityWeight(b.assessment.status, b.assessment.risk_level);
+    const pw = priorityWeight(a.assessment.status, a.assessment.confidence) - priorityWeight(b.assessment.status, b.assessment.confidence);
     if (pw !== 0) return pw;
     return a.control.id.localeCompare(b.control.id);
   });
@@ -434,8 +433,6 @@ async function loadQueue(){
 function renderQueueCard(item){
   const { control, assessment, review } = item;
   const cls = statusClass(assessment.status);
-  const rCls = riskClass(assessment.risk_level);
-  const remediation = (assessment.remediation_steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
   let decidedBanner = '';
   if (review){
     const bannerCls = review.decision === 'approved' ? 'approved' : 'overridden';
@@ -447,14 +444,10 @@ function renderQueueCard(item){
       <div class="queue-card-head">
         <span class="cid" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--teal);background:var(--teal-bg);border:1px solid var(--teal-border);border-radius:5px;padding:2px 8px;">${escapeHtml(control.id)}</span>
         <span class="status-badge ${cls}">${escapeHtml(assessment.status || 'Unknown')}</span>
-        <span class="risk-badge ${rCls}">Risk: ${escapeHtml(assessment.risk_level || 'Unknown')}</span>
         <span class="confidence">${escapeHtml(assessment.confidence || '—')} confidence</span>
         <span class="owner-tag">Owner: ${escapeHtml(control.owner)}</span>
       </div>
       <p class="queue-reasoning">${escapeHtml(assessment.reasoning || '')}</p>
-      ${assessment.risk_statement ? `<p class="risk-statement">${escapeHtml(assessment.risk_statement)}</p>` : ''}
-      ${remediation ? `<ul class="remediation-list">${remediation}</ul>` : ''}
-      ${assessment.compensating_control_suggestion ? `<div class="compensating-control"><div class="label">Suggested — needs reviewer judgment</div><p>${escapeHtml(assessment.compensating_control_suggestion)}</p></div>` : ''}
       ${decidedBanner}
       <input type="text" class="queue-note-input" id="note-${control.id}" placeholder="Optional note">
       <div class="queue-actions-row">
@@ -492,7 +485,7 @@ async function resetDemoData(){
 }
 
 function exportQueueCSV(){
-  const rows = [['Control ID','Framework','Owner','Status','Risk Level','Risk Statement','Confidence','Reasoning','Remediation Steps','Compensating Control Suggestion','Decision','Reviewer','Note','Decided At']];
+  const rows = [['Control ID','Framework','Owner','Status','Confidence','Reasoning','Decision','Reviewer','Note','Decided At']];
   (async () => {
     for (const c of CONTROLS){
       const aRec = await storeGet('assessment:' + c.id, true);
@@ -500,7 +493,7 @@ function exportQueueCSV(){
       const a = JSON.parse(aRec.value);
       const rRec = await storeGet('review:' + c.id, true);
       const r = rRec ? JSON.parse(rRec.value) : null;
-      rows.push([c.id, c.framework, c.owner, a.status || '', a.risk_level || '', (a.risk_statement || '').replace(/\n/g,' '), a.confidence || '', (a.reasoning || '').replace(/\n/g,' '), (a.remediation_steps || []).join(' | '), a.compensating_control_suggestion || '', r ? r.decision : 'pending', r ? r.reviewer : '', r ? (r.note || '') : '', r ? r.decidedAt : '']);
+      rows.push([c.id, c.framework, c.owner, a.status || '', a.confidence || '', (a.reasoning || '').replace(/\n/g,' '), r ? r.decision : 'pending', r ? r.reviewer : '', r ? (r.note || '') : '', r ? r.decidedAt : '']);
     }
     const csv = rows.map(r => r.map(field => '"' + String(field).replace(/"/g,'""') + '"').join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
