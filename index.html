@@ -301,8 +301,16 @@ async function runAssessment(){
     });
     stage = 'reading response status';
     console.log('Fetch completed. Status:', response.status, 'URL used:', url);
+    stage = 'reading raw response text';
+    const rawText = await response.text();
+    console.log('Raw response (first 500 chars):', rawText.slice(0, 500));
     stage = 'parsing response as JSON';
-    const result = await response.json();
+    let result;
+    try {
+      result = JSON.parse(rawText);
+    } catch (parseErr) {
+      throw new Error(`Status ${response.status}. Body was not JSON — first 150 chars: ${rawText.slice(0, 150)}`);
+    }
     stage = 'checking response.ok';
     if (!response.ok){
       throw new Error(result.error || `Backend returned ${response.status}`);
