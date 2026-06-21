@@ -1,35 +1,50 @@
-eexport function buildPrompt(control, evidenceText) {
-  return `You are an AI evidence validation assistant for a GRC/compliance team. Assess whether the submitted evidence satisfies the control requirement below.
+import { buildPrompt } from './_lib/prompt.js';
+import { setCors } from './_lib/cors.js';
 
-Control ID: ${control.id}
-Framework: ${control.framework}
-Control requirement: ${control.requirement}
-What counts as sufficient evidence: ${control.criteria}
+const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
-Submitted evidence:
-"""
-${evidenceText}
-"""
+export default async function handler(req, res) {
+  setCors(res);
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this shape:
-{
-  "status": "Satisfied" | "Partial" | "Missing",
-  "confidence": "High" | "Medium" | "Low",
-  "risk_level": "Critical" | "High" | "Medium" | "Low",
-  "risk_statement": "1-2 sentences describing the concrete consequence if the identified gaps are not remediated — what could actually go wrong, not a restatement of the control",
-  "reasoning": "2-3 sentences explaining the assessment",
-  "evidence_citations": ["short exact snippets copied verbatim from the submitted evidence that support the assessment, or an empty array if none apply"],
-  "gaps": ["specific items still needed to fully satisfy the control, empty array if fully satisfied"],
-  "remediation_steps": ["concrete, specific actions that would close each gap, empty array if status is Satisfied"],
-  "compensating_control_suggestion": "a specific interim control the reviewer could consider approving to mitigate risk while the gap is closed, or null — see rule below",
-  "reviewer_focus": "one sentence on what a human reviewer should specifically verify before signing off"
-}
+  try {
+    const { control, evidenceText } = req.body || {};
+    if (!control || !evidenceText) {
+      return res.status(400).json({ error: 'control and evidenceText are required' });
+    }
 
-Be conservative: if the evidence shows a policy or stated intent rather than proof the control is actually operating, mark it Partial or Missing rather than Satisfied. Only cite text that is actually present in the submitted evidence above — never invent a citation.
-
-For risk_level: base it on the severity of exposure if the gaps you identified go unaddressed, not on how the control sounds in theory. A Missing or Partial status on a control protecting sensitive production access or sensitive data is typically Critical or High; a Missing or Partial status on a lower-stakes administrative control is typically Medium or Low. If status is Satisfied with no gaps, risk_level should usually be Low, reflecting residual risk only.
-
-For remediation_steps: be specific and actionable — name the kind of document, export, or sign-off that would close the gap, not a vague instruction like "improve documentation."
-
-For compensating_control_suggestion: only populate this when status is Partial or Missing AND risk_level is Medium or higher; use null in every other case. Frame it explicitly as something for the reviewer to evaluate and approve, not as a fix you are asserting resolves the gap — for example "Reviewer could consider requiring manager email confirmation as an interim measure" rather than stating it resolves the control.`;
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: buildPrompt(control, evidenceText) }],
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      return res.status(r.status).json({ error: data.error?.message || 'Anthropic API error' });
+    }
+    const textBlock = (data.content || []).find((b) => b.type === 'text');
+    if (!textBlock) throw new Error('No assessment content returned from the model.');
+    const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
+    let result;
+    try {
+      result = JSON.parse(cleaned);
+    } catch (parseErr) {
+      if (data.stop_reason === 'max_tokens') {
+        throw new Error('Model response was cut off before completing (hit the token limit) — try raising max_tokens.');
+      }
+      throw new Error('Model did not return valid JSON: ' + parseErr.message);
+    }
+    res.status(200).json(result);
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 }
